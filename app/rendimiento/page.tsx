@@ -5,6 +5,7 @@ import Papa from "papaparse";
 const SHEET_ID = "1Hh982i-Mx_ytjeAONBkJtWLu7N3AaEHGZRyqBw0DS5A";
 const CSV_JUGADORES = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Jugadores`;
 const CSV_DIARIO = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=44769068`;
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwVmP41H4_j56ZqAM4lggPuch-z_l8MgGYhlhde-Ry8jZxdDbjjL3G6QxrJaTHsIVRI6g/exec";
  
 type Rol = "admin" | "scout" | "director" | "ojeador";
  
@@ -55,8 +56,19 @@ type PanelOjeador = {
   ultimaActividad: string;
 };
  
-function getOjeadoresRegistrados(): OjeadorRegistrado[] {
+// ── Helpers ───────────────────────────────────────────────────────
+function getOjeadoresLocal(): OjeadorRegistrado[] {
   try { return JSON.parse(localStorage.getItem("ojeadores_registrados") || "[]"); } catch { return []; }
+}
+function saveOjeadoresLocal(lista: OjeadorRegistrado[]) {
+  try { localStorage.setItem("ojeadores_registrados", JSON.stringify(lista)); } catch {}
+}
+async function fetchOjeadoresRemoto(): Promise<OjeadorRegistrado[]> {
+  try {
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=getOjeadores`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
 }
  
 function tieneFecha(val: string): boolean {
@@ -97,55 +109,33 @@ function parseEntradas(filas: string[][]): EntradaDiario[] {
  
 function calcularPanel(nombre: string, jugadores: JugadorData[], entradas: EntradaDiario[], ojeador: OjeadorRegistrado): PanelOjeador {
   const nombreLower = nombre.toLowerCase();
- 
   const jugadoresPropios = jugadores.filter(j =>
     j.scout.toLowerCase().includes(nombreLower) ||
     nombreLower.includes(j.scout.toLowerCase().split(" ")[0])
   );
- 
   const entradasPropias = entradas.filter(e =>
     e.scout.toLowerCase().includes(nombreLower) ||
     nombreLower.includes(e.scout.toLowerCase().split(" ")[0])
   );
- 
   const zonas = [...new Set([
     ...jugadoresPropios.map(j => j.pais).filter(Boolean),
     ...entradasPropias.map(e => e.lugarEvento).filter(Boolean),
   ])].slice(0, 8);
- 
   const posiciones: Record<string, number> = {};
-  jugadoresPropios.forEach(j => {
-    if (j.posicion) posiciones[j.posicion] = (posiciones[j.posicion] || 0) + 1;
-  });
- 
+  jugadoresPropios.forEach(j => { if (j.posicion) posiciones[j.posicion] = (posiciones[j.posicion] || 0) + 1; });
   const tiposEntrada: Record<string, number> = {};
-  entradasPropias.forEach(e => {
-    if (e.tipoEntrada) tiposEntrada[e.tipoEntrada] = (tiposEntrada[e.tipoEntrada] || 0) + 1;
-  });
- 
+  entradasPropias.forEach(e => { if (e.tipoEntrada) tiposEntrada[e.tipoEntrada] = (tiposEntrada[e.tipoEntrada] || 0) + 1; });
   const urgencias: Record<string, number> = {};
-  entradasPropias.forEach(e => {
-    if (e.urgencia) urgencias[e.urgencia] = (urgencias[e.urgencia] || 0) + 1;
-  });
- 
+  entradasPropias.forEach(e => { if (e.urgencia) urgencias[e.urgencia] = (urgencias[e.urgencia] || 0) + 1; });
   const ultimaActividad = entradasPropias.length > 0
     ? entradasPropias.sort((a, b) => b.fecha.localeCompare(a.fecha))[0].fecha
     : "Sin actividad";
- 
   return {
-    nombre: ojeador.nombre,
-    email: ojeador.email,
-    telefono: ojeador.telefono,
-    fechaRegistro: ojeador.fechaRegistro,
-    totalInformes: entradasPropias.length,
-    jugadoresAnalizados: jugadoresPropios.length,
-    zonasGeograficas: zonas,
-    posicionesAnalizadas: posiciones,
-    tiposEntrada,
-    urgencias,
-    jugadores: jugadoresPropios,
-    entradasDiario: entradasPropias,
-    ultimaActividad,
+    nombre: ojeador.nombre, email: ojeador.email, telefono: ojeador.telefono,
+    fechaRegistro: ojeador.fechaRegistro, totalInformes: entradasPropias.length,
+    jugadoresAnalizados: jugadoresPropios.length, zonasGeograficas: zonas,
+    posicionesAnalizadas: posiciones, tiposEntrada, urgencias,
+    jugadores: jugadoresPropios, entradasDiario: entradasPropias, ultimaActividad,
   };
 }
  
@@ -161,10 +151,8 @@ function getPosColor(pos: string) {
  
 function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador; expandido: boolean; onToggle: () => void }) {
   const totalEntradas = Object.values(panel.tiposEntrada).reduce((a, b) => a + b, 0);
- 
   return (
     <div style={{ background: "#1a1f2e", border: "1px solid #1f2937", borderRadius: 16, overflow: "hidden", marginBottom: 16 }}>
-      {/* Header clickable */}
       <div onClick={onToggle} style={{ padding: "20px 24px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}
         onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = "#111827"}
         onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = "transparent"}>
@@ -192,17 +180,12 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
         <span style={{ color: "#6b7280", fontSize: 18 }}>{expandido ? "▲" : "▼"}</span>
       </div>
  
-      {/* Detalle expandido */}
       {expandido && (
         <div style={{ borderTop: "1px solid #1f2937", padding: "20px 24px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, marginBottom: 20 }}>
- 
-            {/* Zonas geográficas */}
             <div style={{ background: "#111827", borderRadius: 12, padding: "16px 18px", border: "1px solid #1f2937" }}>
               <div style={{ color: "#9ca3af", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>🌍 Zonas geográficas</div>
-              {panel.zonasGeograficas.length === 0 ? (
-                <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div>
-              ) : (
+              {panel.zonasGeograficas.length === 0 ? <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div> : (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {panel.zonasGeograficas.map(zona => (
                     <span key={zona} style={{ background: "#1a1f2e", border: "1px solid #374151", borderRadius: 6, padding: "3px 10px", fontSize: 12, color: "#d1d5db" }}>{zona}</span>
@@ -210,13 +193,9 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
                 </div>
               )}
             </div>
- 
-            {/* Posiciones analizadas */}
             <div style={{ background: "#111827", borderRadius: 12, padding: "16px 18px", border: "1px solid #1f2937" }}>
               <div style={{ color: "#9ca3af", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>📍 Posiciones analizadas</div>
-              {Object.keys(panel.posicionesAnalizadas).length === 0 ? (
-                <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div>
-              ) : (
+              {Object.keys(panel.posicionesAnalizadas).length === 0 ? <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {Object.entries(panel.posicionesAnalizadas).sort((a, b) => b[1] - a[1]).map(([pos, count]) => (
                     <div key={pos} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -232,13 +211,9 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
                 </div>
               )}
             </div>
- 
-            {/* Tipos de entrada */}
             <div style={{ background: "#111827", borderRadius: 12, padding: "16px 18px", border: "1px solid #1f2937" }}>
               <div style={{ color: "#9ca3af", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>📝 Tipos de informe</div>
-              {Object.keys(panel.tiposEntrada).length === 0 ? (
-                <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div>
-              ) : (
+              {Object.keys(panel.tiposEntrada).length === 0 ? <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {Object.entries(panel.tiposEntrada).sort((a, b) => b[1] - a[1]).map(([tipo, count]) => (
                     <div key={tipo} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -254,13 +229,9 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
                 </div>
               )}
             </div>
- 
-            {/* Urgencias */}
             <div style={{ background: "#111827", borderRadius: 12, padding: "16px 18px", border: "1px solid #1f2937" }}>
               <div style={{ color: "#9ca3af", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>🔥 Distribución urgencias</div>
-              {Object.keys(panel.urgencias).length === 0 ? (
-                <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div>
-              ) : (
+              {Object.keys(panel.urgencias).length === 0 ? <div style={{ color: "#4b5563", fontSize: 13 }}>Sin datos</div> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {Object.entries(panel.urgencias).map(([urg, count]) => {
                     const color = urg === "Alta" ? "#ef4444" : urg === "Media" ? "#f59e0b" : "#10b981";
@@ -276,16 +247,12 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
             </div>
           </div>
  
-          {/* Jugadores analizados */}
           {panel.jugadores.length > 0 && (
             <div style={{ background: "#111827", borderRadius: 12, padding: "16px 18px", border: "1px solid #1f2937", marginBottom: 16 }}>
               <div style={{ color: "#9ca3af", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>👤 Jugadores en su radar ({panel.jugadores.length})</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                 {panel.jugadores.map(j => (
-                  <a key={j.id} href={`/jugadores/${encodeURIComponent(j.id)}`} style={{
-                    background: "#1a1f2e", border: "1px solid #1f2937", borderRadius: 10, padding: "10px 12px",
-                    textDecoration: "none", display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s",
-                  }}
+                  <a key={j.id} href={`/jugadores/${encodeURIComponent(j.id)}`} style={{ background: "#1a1f2e", border: "1px solid #1f2937", borderRadius: 10, padding: "10px 12px", textDecoration: "none", display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s" }}
                     onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.borderColor = "#374151"}
                     onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.borderColor = "#1f2937"}>
                     <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #3b82f6, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 900, color: "#fff", flexShrink: 0 }}>
@@ -300,8 +267,6 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
               </div>
             </div>
           )}
- 
-          {/* Última actividad */}
           <div style={{ color: "#6b7280", fontSize: 12, textAlign: "right" }}>
             Última actividad: <span style={{ color: "#9ca3af", fontWeight: 600 }}>{panel.ultimaActividad}</span>
           </div>
@@ -329,31 +294,32 @@ export default function Rendimiento() {
     setRol(rolGuardado);
     setNombreUsuario(nombre);
     setOjeadorId(id);
-    setOjeadoresRegistrados(getOjeadoresRegistrados());
  
-    // Si es ojeador, expandir su panel por defecto
-    if (rolGuardado === "ojeador" && id) {
-      setExpandidos(new Set([id]));
-    }
+    if (rolGuardado === "ojeador" && id) setExpandidos(new Set([id]));
+ 
+    // Cargar ojeadores: caché local primero, luego remoto
+    const local = getOjeadoresLocal();
+    if (local.length > 0) setOjeadoresRegistrados(local);
+ 
+    fetchOjeadoresRemoto().then(remotos => {
+      if (remotos.length > 0) {
+        setOjeadoresRegistrados(remotos);
+        saveOjeadoresLocal(remotos);
+      }
+    });
  
     Papa.parse(CSV_JUGADORES, {
       download: true, header: false, skipEmptyLines: false,
-      complete: (result) => {
-        setJugadores(parseJugadores(result.data as string[][]));
-      },
+      complete: (result) => setJugadores(parseJugadores(result.data as string[][])),
     });
  
     Papa.parse(CSV_DIARIO, {
       download: true, header: false, skipEmptyLines: false,
-      complete: (result) => {
-        setEntradas(parseEntradas(result.data as string[][]));
-        setLoading(false);
-      },
+      complete: (result) => { setEntradas(parseEntradas(result.data as string[][])); setLoading(false); },
       error: () => setLoading(false),
     });
   }, []);
  
-  // Acceso denegado
   if (rol !== "admin" && rol !== "ojeador") {
     return (
       <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7280", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
@@ -365,24 +331,18 @@ export default function Rendimiento() {
     );
   }
  
-  // Calcular paneles
   const paneles: { ojeador: OjeadorRegistrado; panel: PanelOjeador }[] = [];
  
   if (rol === "admin") {
     const ojeadoresAMostrar = ojeadorSeleccionado === "todos"
       ? ojeadoresRegistrados
       : ojeadoresRegistrados.filter(o => o.id === ojeadorSeleccionado);
- 
-    ojeadoresAMostrar.forEach(o => {
-      paneles.push({ ojeador: o, panel: calcularPanel(o.nombre, jugadores, entradas, o) });
-    });
+    ojeadoresAMostrar.forEach(o => paneles.push({ ojeador: o, panel: calcularPanel(o.nombre, jugadores, entradas, o) }));
   } else {
-    // Ojeador ve solo el suyo
     const miOjeador = ojeadoresRegistrados.find(o => o.id === ojeadorId);
     if (miOjeador) {
       paneles.push({ ojeador: miOjeador, panel: calcularPanel(miOjeador.nombre, jugadores, entradas, miOjeador) });
     } else if (nombreUsuario) {
-      // Fallback si no está en la lista
       const fake: OjeadorRegistrado = { id: "me", nombre: nombreUsuario, email: "", telefono: "", password: "", fechaRegistro: "—" };
       paneles.push({ ojeador: fake, panel: calcularPanel(nombreUsuario, jugadores, entradas, fake) });
     }
@@ -400,7 +360,6 @@ export default function Rendimiento() {
     <div style={{ minHeight: "100vh", background: "#0f1117", color: "#e5e7eb", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
  
-        {/* CABECERA */}
         <div style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: "#fff" }}>
@@ -417,7 +376,6 @@ export default function Rendimiento() {
           </a>
         </div>
  
-        {/* Filtro admin */}
         {rol === "admin" && ojeadoresRegistrados.length > 1 && (
           <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
             <button onClick={() => setOjeadorSeleccionado("todos")} style={{
@@ -455,7 +413,6 @@ export default function Rendimiento() {
           </div>
         ) : (
           <>
-            {/* Resumen global solo para admin */}
             {rol === "admin" && ojeadoresRegistrados.length > 0 && ojeadorSeleccionado === "todos" && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
                 {[
@@ -472,7 +429,6 @@ export default function Rendimiento() {
                 ))}
               </div>
             )}
- 
             {paneles.map(({ ojeador, panel }) => (
               <PanelOjeadorCard
                 key={ojeador.id}
