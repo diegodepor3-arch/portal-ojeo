@@ -169,26 +169,27 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center text-2xl shadow-lg shadow-blue-500/20">🛡️</div>
             <h2 className="text-2xl font-black mb-2 uppercase tracking-tighter text-white">ScoutPro Access</h2>
             <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mb-6">Introduce tu clave de acceso</p>
-            <div className="text-left mb-4 bg-[#0b0d17] rounded-2xl p-4 border border-slate-800">
-              <p className="text-[9px] text-slate-500 uppercase font-bold mb-2">Claves del equipo:</p>
-              {Object.entries(CREDENCIALES_FIJAS).map(([pass, rol]) => (
-                <div key={pass} className="flex justify-between text-[10px] py-1">
-                  <span className="text-slate-400 font-mono">{pass}</span>
-                  <span style={{ color: ROL_COLORES[rol] }} className="font-bold">{ROL_LABELS[rol]}</span>
-                </div>
-              ))}
-              {getOjeadoresRegistrados().length > 0 && (
-                <>
-                  <p className="text-[9px] text-slate-500 uppercase font-bold mb-2 mt-3">Ojeadores registrados:</p>
-                  {getOjeadoresRegistrados().map(o => (
-                    <div key={o.id} className="flex justify-between text-[10px] py-1">
-                      <span className="text-slate-400 font-mono">{o.password}</span>
-                      <span style={{ color: ROL_COLORES["ojeador"] }} className="font-bold">👁️ {o.nombre}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
+          <div className="text-left mb-4 bg-[#0b0d17] rounded-2xl p-4 border border-slate-800">
+  <p className="text-[9px] text-slate-500 uppercase font-bold mb-2">Claves del equipo:</p>
+  {Object.entries(CREDENCIALES_FIJAS).map(([pass, rol]) => (
+    <div key={pass} className="flex justify-between text-[10px] py-1">
+      <span className="text-slate-400 font-mono">{pass}</span>
+      <span style={{ color: ROL_COLORES[rol] }} className="font-bold">{ROL_LABELS[rol]}</span>
+    </div>
+  ))}
+
+  {getOjeadoresRegistrados().length > 0 && (
+    <>
+      <p className="text-[9px] text-slate-500 uppercase font-bold mb-2 mt-3">Ojeadores registrados:</p>
+      {getOjeadoresRegistrados().map(o => (
+        <div key={o.id} className="flex justify-between text-[10px] py-1">
+          <span className="text-slate-400 font-mono">{o.password}</span>
+          <span style={{ color: ROL_COLORES["ojeador"] }} className="font-bold">{o.nombre}</span>
+        </div>
+      ))}
+    </>
+  )}
+</div>
             <input type="password" placeholder="Contraseña..." className="w-full bg-[#0b0d17] p-4 rounded-2xl border border-slate-800 mb-2 outline-none focus:border-blue-500 text-center text-white" onChange={e => setPassword(e.target.value)} />
             {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
             <button className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all text-white mt-2">Entrar al Sistema</button>
