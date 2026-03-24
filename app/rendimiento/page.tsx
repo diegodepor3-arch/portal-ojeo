@@ -149,23 +149,66 @@ function getPosColor(pos: string) {
   return "#6b7280";
 }
  
-function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador; expandido: boolean; onToggle: () => void }) {
+// ── Modal de confirmación de borrado ──────────────────────────────
+function ModalConfirmar({ nombre, onConfirmar, onCancelar }: { nombre: string; onConfirmar: () => void; onCancelar: () => void }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+      <div style={{ background: "#1a1f2e", border: "1px solid #374151", borderRadius: 20, padding: "32px 28px", maxWidth: 380, width: "90%", textAlign: "center", boxShadow: "0 25px 60px rgba(0,0,0,0.6)" }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>🗑️</div>
+        <h2 style={{ color: "#fff", fontSize: 18, fontWeight: 800, margin: "0 0 8px" }}>¿Eliminar ojeador?</h2>
+        <p style={{ color: "#9ca3af", fontSize: 14, margin: "0 0 24px", lineHeight: 1.5 }}>
+          Vas a eliminar a <strong style={{ color: "#f59e0b" }}>{nombre}</strong> del sistema.<br />Esta acción no se puede deshacer.
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={onCancelar}
+            style={{ flex: 1, padding: "11px 0", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, cursor: "pointer", color: "#9ca3af", fontSize: 13, fontWeight: 700 }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirmar}
+            style={{ flex: 1, padding: "11px 0", background: "linear-gradient(135deg,#ef4444,#dc2626)", border: "none", borderRadius: 12, cursor: "pointer", color: "#fff", fontSize: 13, fontWeight: 800 }}
+          >
+            Sí, eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+ 
+// ── Card de ojeador ───────────────────────────────────────────────
+function PanelOjeadorCard({
+  panel, expandido, onToggle, esAdmin, onEliminar,
+}: {
+  panel: PanelOjeador;
+  expandido: boolean;
+  onToggle: () => void;
+  esAdmin: boolean;
+  onEliminar?: () => void;
+}) {
   const totalEntradas = Object.values(panel.tiposEntrada).reduce((a, b) => a + b, 0);
+ 
   return (
     <div style={{ background: "#1a1f2e", border: "1px solid #1f2937", borderRadius: 16, overflow: "hidden", marginBottom: 16 }}>
-      <div onClick={onToggle} style={{ padding: "20px 24px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}
-        onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = "#111827"}
-        onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = "transparent"}>
-        <div style={{ width: 48, height: 48, borderRadius: "50%", background: "linear-gradient(135deg, #f59e0b, #d97706)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#000", flexShrink: 0 }}>
+      <div style={{ padding: "20px 24px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+ 
+        {/* Avatar — solo la parte izquierda es clickable para expandir */}
+        <div onClick={onToggle} style={{ cursor: "pointer", width: 48, height: 48, borderRadius: "50%", background: "linear-gradient(135deg, #f59e0b, #d97706)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 900, color: "#000", flexShrink: 0 }}>
           {panel.nombre[0]?.toUpperCase()}
         </div>
-        <div style={{ flex: 1 }}>
+ 
+        {/* Info */}
+        <div onClick={onToggle} style={{ flex: 1, cursor: "pointer" }}>
           <div style={{ fontWeight: 700, color: "#fff", fontSize: 16 }}>{panel.nombre}</div>
           <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>
             📧 {panel.email} · 📞 {panel.telefono} · Registro: {panel.fechaRegistro}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+ 
+        {/* Stats */}
+        <div onClick={onToggle} style={{ display: "flex", gap: 16, flexWrap: "wrap", cursor: "pointer" }}>
           {[
             { label: "Informes", value: panel.totalInformes, color: "#3b82f6" },
             { label: "Jugadores", value: panel.jugadoresAnalizados, color: "#10b981" },
@@ -177,7 +220,21 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
             </div>
           ))}
         </div>
-        <span style={{ color: "#6b7280", fontSize: 18 }}>{expandido ? "▲" : "▼"}</span>
+ 
+        {/* Botón eliminar — solo para admin */}
+        {esAdmin && onEliminar && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onEliminar(); }}
+            title="Eliminar ojeador"
+            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, cursor: "pointer", color: "#ef4444", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, transition: "background 0.15s" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.22)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(239,68,68,0.1)")}
+          >
+            🗑️
+          </button>
+        )}
+ 
+        <span onClick={onToggle} style={{ color: "#6b7280", fontSize: 18, cursor: "pointer" }}>{expandido ? "▲" : "▼"}</span>
       </div>
  
       {expandido && (
@@ -276,6 +333,7 @@ function PanelOjeadorCard({ panel, expandido, onToggle }: { panel: PanelOjeador;
   );
 }
  
+// ── Página principal ──────────────────────────────────────────────
 export default function Rendimiento() {
   const [rol, setRol] = useState<Rol>("ojeador");
   const [nombreUsuario, setNombreUsuario] = useState("");
@@ -287,6 +345,9 @@ export default function Rendimiento() {
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [ojeadorSeleccionado, setOjeadorSeleccionado] = useState<string>("todos");
  
+  // ── NUEVO: estado para el modal de confirmación ──
+  const [ojeadorAEliminar, setOjeadorAEliminar] = useState<OjeadorRegistrado | null>(null);
+ 
   useEffect(() => {
     const rolGuardado = (localStorage.getItem("scoutpro_rol") as Rol) || "ojeador";
     const nombre = localStorage.getItem("scoutpro_nombre") || "";
@@ -297,7 +358,6 @@ export default function Rendimiento() {
  
     if (rolGuardado === "ojeador" && id) setExpandidos(new Set([id]));
  
-    // Cargar ojeadores: caché local primero, luego remoto
     const local = getOjeadoresLocal();
     if (local.length > 0) setOjeadoresRegistrados(local);
  
@@ -319,6 +379,17 @@ export default function Rendimiento() {
       error: () => setLoading(false),
     });
   }, []);
+ 
+  // ── NUEVO: función para eliminar ojeador ──
+  function eliminarOjeador(id: string) {
+    const nuevaLista = ojeadoresRegistrados.filter(o => o.id !== id);
+    setOjeadoresRegistrados(nuevaLista);
+    saveOjeadoresLocal(nuevaLista);
+    // Si estaba seleccionado, volver a "todos"
+    if (ojeadorSeleccionado === id) setOjeadorSeleccionado("todos");
+    // Cerrar modal
+    setOjeadorAEliminar(null);
+  }
  
   if (rol !== "admin" && rol !== "ojeador") {
     return (
@@ -358,6 +429,16 @@ export default function Rendimiento() {
  
   return (
     <div style={{ minHeight: "100vh", background: "#0f1117", color: "#e5e7eb", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+ 
+      {/* Modal confirmación borrado */}
+      {ojeadorAEliminar && (
+        <ModalConfirmar
+          nombre={ojeadorAEliminar.nombre}
+          onConfirmar={() => eliminarOjeador(ojeadorAEliminar.id)}
+          onCancelar={() => setOjeadorAEliminar(null)}
+        />
+      )}
+ 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
  
         <div style={{ marginBottom: 28, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
@@ -435,6 +516,8 @@ export default function Rendimiento() {
                 panel={panel}
                 expandido={expandidos.has(ojeador.id)}
                 onToggle={() => toggleExpandido(ojeador.id)}
+                esAdmin={rol === "admin"}
+                onEliminar={rol === "admin" ? () => setOjeadorAEliminar(ojeador) : undefined}
               />
             ))}
           </>
