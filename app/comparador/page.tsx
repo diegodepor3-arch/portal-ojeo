@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Papa from "papaparse";
 import {
@@ -82,8 +82,9 @@ function NotaColor({ nota }: { nota: string }) {
   const color = n >= 8 ? "#10b981" : n >= 6 ? "#f59e0b" : "#ef4444";
   return <span style={{ color, fontWeight: 700 }}>{nota}</span>;
 }
- 
-export default function Comparador() {
+
+// ✅ Componente interno que usa useSearchParams
+function ComparadorContent() {
   const searchParams = useSearchParams();
   const [todos, setTodos] = useState<Jugador[]>([]);
   const [seleccionados, setSeleccionados] = useState<string[]>([]);
@@ -295,5 +296,14 @@ export default function Comparador() {
         </div>
       </main>
     </div>
+  );
+}
+
+// ✅ Export por defecto con Suspense envolviendo el componente interno
+export default function Comparador() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0f1117", color: "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center" }}>⏳ Cargando...</div>}>
+      <ComparadorContent />
+    </Suspense>
   );
 }
