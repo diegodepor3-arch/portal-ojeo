@@ -301,7 +301,8 @@ export default function FichaJugador() {
     if (!elemento || !jugador) return;
     setExportando(true);
     try {
-      const canvas = await html2canvas(elemento, { backgroundColor: "#0f1117", scale: 2, useCORS: true });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const canvas = await (html2canvas as any)(elemento, { backgroundColor: "#0f1117", scale: 2, useCORS: true });
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pdfWidth = pdf.internal.pageSize.getWidth();
