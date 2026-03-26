@@ -1,179 +1,185 @@
-"use client";
-import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
-import Nav from "./Nav";
+'use client'
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxpQTkl1mrCtAYEBewlOMSCrFVo_34YXMRqMyREPBc62JLpkHs8yKNDheTcu94hqFp-ZQ/exec";
+import { useEffect } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { useAuth } from '@/context/AuthContext'
 
-type Rol = "admin" | "scout" | "director" | "ojeador";
-type Ojeador = { id: string; nombre: string; email: string; password: string };
+const navItems = [
+  {
+    href: '/dashboard',
+    label: 'Inicio',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/jugadores',
+    label: 'Jugadores',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/partidos',
+    label: 'Partidos',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/videos',
+    label: 'Vídeos',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/diario',
+    label: 'Diario',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/calendario',
+    label: 'Calendario',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+]
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const esModoViaje = pathname === "/viaje"; 
-  
-  const [montado, setMontado] = useState(false);
-  const [autenticado, setAutenticado] = useState(false);
-  const [password, setPassword] = useState("");
-  const [ojeadoresCache, setOjeadoresCache] = useState<Ojeador[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [pantalla, setPantalla] = useState<"login" | "registro">("login");
-  const [usuario, setUsuario] = useState({ nombre: "", rol: "ojeador" as Rol, foto: null as string | null });
-
-  const [regNombre, setRegNombre] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [passwordGenerada, setPasswordGenerada] = useState("");
-
-  const refreshData = async () => {
-    try {
-      const res = await fetch(`${APPS_SCRIPT_URL}?action=getOjeadores&t=${Date.now()}`);
-      const data = await res.json();
-      if (Array.isArray(data)) setOjeadoresCache(data);
-    } catch (e) { console.log("Error de conexión"); }
-  };
+  const { user, perfil, loading, signOut } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
-    setMontado(true);
-    const auth = localStorage.getItem("scoutpro_auth") === "true";
-    if (auth) {
-      setAutenticado(true);
-      setUsuario({
-        nombre: localStorage.getItem("scoutpro_nombre") || "Usuario",
-        rol: (localStorage.getItem("scoutpro_rol") as Rol) || "ojeador",
-        foto: localStorage.getItem("scoutpro_foto") || null
-      });
+    if (!loading && !user) {
+      router.push('/login')
     }
-    refreshData();
-  }, []);
+  }, [user, loading, router])
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === "admin99") {
-      setUsuario({ nombre: "Administrador", rol: "admin", foto: null });
-      setAutenticado(true);
-      localStorage.setItem("scoutpro_auth", "true");
-      localStorage.setItem("scoutpro_rol", "admin");
-      return;
-    }
-    const ojeador = ojeadoresCache.find(o => o.password.trim() === password.trim());
-    if (ojeador) {
-      setUsuario({ nombre: ojeador.nombre, rol: "ojeador", foto: null });
-      setAutenticado(true);
-      localStorage.setItem("scoutpro_auth", "true");
-      localStorage.setItem("scoutpro_nombre", ojeador.nombre);
-      localStorage.setItem("scoutpro_rol", "ojeador");
-    } else { alert("⚠️ Clave incorrecta."); }
-  };
-
-  const handleRegistro = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const pass = `oj_${regNombre.toLowerCase().split(" ")[0]}${Math.floor(Math.random()*89)+10}`;
-    const nuevo = { action: "registrarOjeador", id: Date.now().toString(), nombre: regNombre, email: regEmail, password: pass };
-    setOjeadoresCache(prev => [...prev, { ...nuevo, password: pass }]);
-    await fetch(APPS_SCRIPT_URL, { method: "POST", mode: "no-cors", body: JSON.stringify(nuevo) });
-    setPasswordGenerada(pass);
-  };
-
-  const eliminarTodo = async () => {
-    if (!confirm("⚠️ ¿BORRAR TODA LA NUBE?")) return;
-    setOjeadoresCache([]);
-    await fetch(APPS_SCRIPT_URL, { method: "POST", mode: "no-cors", body: JSON.stringify({ action: "borrarTodos" }) });
-    refreshData();
-  };
-
-  if (!montado) return null;
-
-  if (!autenticado) {
+  if (loading) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-[#0b0d17] flex items-center justify-center p-4 text-white">
-        <div className="bg-[#1a1c2e] p-10 rounded-[40px] border border-slate-800 w-full max-w-sm shadow-2xl">
-          {pantalla === "login" ? (
-            <div className="text-center">
-              <h2 className="text-2xl font-black mb-8 uppercase italic text-blue-500 tracking-tighter">ScoutPro</h2>
-              <form onSubmit={handleLogin}>
-                <input type="password" placeholder="Clave de acceso..." className="w-full bg-black p-5 rounded-3xl mb-5 text-center border border-slate-700 outline-none focus:border-blue-500 transition-all" onChange={e => setPassword(e.target.value)} />
-                <button className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-3xl font-black uppercase text-sm shadow-lg shadow-blue-500/20 transition-all">ENTRAR</button>
-              </form>
-              <button onClick={() => setPantalla("registro")} className="mt-8 text-[11px] text-slate-500 hover:text-amber-500 font-bold uppercase transition-colors">Nuevo Registro →</button>
-            </div>
-          ) : (
-            <div className="text-center">
-              <h2 className="text-xl font-black mb-6 uppercase">Registro Global</h2>
-              {passwordGenerada ? (
-                <div className="bg-black p-8 rounded-3xl border border-amber-500/30">
-                  <p className="text-[10px] text-slate-400 mb-2 uppercase">Tu clave privada:</p>
-                  <p className="text-3xl text-amber-400 font-mono font-black mb-8 tracking-tighter">{passwordGenerada}</p>
-                  <button onClick={() => {setPantalla("login"); setPasswordGenerada("")}} className="w-full bg-blue-600 py-4 rounded-xl font-bold uppercase transition-all">Ir al Login</button>
-                </div>
-              ) : (
-                <form onSubmit={handleRegistro} className="space-y-3">
-                  <input placeholder="Nombre completo" className="w-full bg-black p-4 rounded-2xl border border-slate-700 outline-none" onChange={e => setRegNombre(e.target.value)} required />
-                  <input type="email" placeholder="Correo electrónico" className="w-full bg-black p-4 rounded-2xl border border-slate-700 outline-none" onChange={e => setRegEmail(e.target.value)} required />
-                  <button className="w-full bg-amber-500 hover:bg-amber-400 py-4 rounded-2xl text-black font-black uppercase text-[10px] mt-3 transition-all">Registrar en Base de Datos</button>
-                  <button type="button" onClick={() => setPantalla("login")} className="block w-full text-[10px] text-slate-500 mt-4 uppercase font-bold hover:text-white transition-colors">Volver</button>
-                </form>
-              )}
-            </div>
-          )}
+      <div className="min-h-screen bg-[#0a0f1e] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400 text-sm">Cargando...</p>
         </div>
       </div>
-    );
+    )
   }
 
-  return (
-    <>
-      {!esModoViaje && (
-        <div className="fixed top-4 right-6 z-[9999] flex items-center gap-4">
-          {/* ICONO MENSAJERÍA */}
-          <a href="/mensajeria" className="w-10 h-10 bg-[#1a1c2e]/90 rounded-full border border-slate-800 flex items-center justify-center text-lg hover:bg-slate-800 transition-all no-underline relative">
-            🔔 <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] flex items-center justify-center font-bold text-white shadow-sm">1</span>
-          </a>
+  if (!user) return null
 
-          <div onClick={() => setIsOpen(!isOpen)} className="bg-[#1a1c2e]/90 backdrop-blur-md p-1.5 pr-5 rounded-full border border-slate-800 flex items-center gap-3 cursor-pointer hover:border-blue-500 transition-all shadow-xl">
-            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center font-black text-white uppercase text-xs">
-              {usuario.foto ? <img src={usuario.foto} className="w-full h-full object-cover rounded-full" /> : usuario.nombre[0]}
+  const esAdmin = perfil?.rol === 'admin' || perfil?.rol === 'director'
+
+  return (
+    <div className="min-h-screen bg-[#0a0f1e] flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-[#111827] border-r border-slate-700/50 flex flex-col fixed h-full">
+        {/* Logo */}
+        <div className="p-6 border-b border-slate-700/50">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
             </div>
-            <div className="text-white text-right">
-              <div className="text-[7px] font-black text-blue-400 uppercase tracking-tighter">{usuario.rol}</div>
-              <div className="text-[11px] font-bold leading-tight">{usuario.nombre}</div>
+            <div>
+              <p className="text-white font-bold text-sm leading-tight">Portal Ojeadores</p>
+              <p className="text-slate-500 text-xs">Scouting privado</p>
             </div>
           </div>
-
-          {isOpen && (
-            <div className="absolute top-14 right-0 w-64 bg-[#1a1c2e] border border-slate-800 rounded-[32px] p-6 shadow-2xl animate-in fade-in slide-in-from-top-2">
-              <div className="space-y-3">
-                {/* OPCIONES SEGÚN ROL RESTAURADAS */}
-                {(usuario.rol === "admin" || usuario.rol === "director") && (
-                  <a href="/informes" className="block w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 p-3 rounded-2xl text-[10px] font-black border border-amber-500/20 text-center no-underline uppercase tracking-widest transition-all">
-                    📋 Informes Ojeadores
-                  </a>
-                )}
-
-                <a href="/viaje" className="block w-full bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 p-3 rounded-2xl text-[10px] font-black border border-blue-500/20 text-center no-underline uppercase tracking-widest transition-all">
-                  ✈️ Modo Viaje
-                </a>
-
-                {usuario.rol === "admin" && (
-                  <button onClick={eliminarTodo} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 p-3 rounded-2xl text-[10px] font-black border border-red-500/20 uppercase tracking-widest transition-all">
-                    🗑️ Borrar Nube ({ojeadoresCache.length})
-                  </button>
-                )}
-                
-                <hr className="border-white/5 my-2" />
-                
-                <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="w-full bg-slate-800/50 text-slate-400 p-3 rounded-xl text-[10px] font-bold uppercase hover:text-white transition-colors">Cerrar Sesión</button>
-              </div>
-            </div>
-          )}
         </div>
-      )}
 
-      {/* NAVEGACIÓN PRINCIPAL */}
-      {!esModoViaje && <Nav />}
-      
-      <main className={`relative z-10 ${esModoViaje ? 'pt-0' : 'pt-4'}`}>
+        {/* Nav */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {navItems.map(item => {
+            const active = pathname === item.href
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  active
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            )
+          })}
+
+          {/* Admin link */}
+          {esAdmin && (
+            <>
+              <div className="pt-4 pb-2">
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider px-3">Administración</p>
+              </div>
+              <Link
+                href="/informes"
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  pathname === '/informes'
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Panel de informes
+              </Link>
+            </>
+          )}
+        </nav>
+
+        {/* User info + logout */}
+        <div className="p-4 border-t border-slate-700/50">
+          <div className="flex items-center gap-3 mb-3 px-2">
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-emerald-400 text-xs font-bold uppercase">
+                {perfil?.nombre?.charAt(0) ?? '?'}
+              </span>
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-white text-sm font-medium truncate">{perfil?.nombre}</p>
+              <p className="text-slate-500 text-xs capitalize">{perfil?.rol}</p>
+            </div>
+          </div>
+          <button
+            onClick={signOut}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 text-sm transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 ml-64 p-8">
         {children}
       </main>
-    </>
-  );
+    </div>
+  )
 }
