@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
+    "@types/html2canvas": "^0.5.35",
+    "@types/papaparse": "^5.5.2",
     "date-fns": "^4.1.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "next": "14.1.0",
     "papaparse": "^5.5.3",
