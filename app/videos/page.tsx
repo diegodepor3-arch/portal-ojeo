@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
  
-// ── Types ─────────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────
 type Clip = {
   id: string;
   jugador: string;
@@ -26,15 +27,7 @@ type Anotacion = {
  
 type Herramienta = "flecha" | "circulo" | "texto" | "rectangulo" | "selector";
  
-// ── localStorage helpers ──────────────────────────────────────────
-function getClips(): Clip[] {
-  try { return JSON.parse(localStorage.getItem("video_clips") || "[]"); } catch { return []; }
-}
-function saveClips(clips: Clip[]) {
-  try { localStorage.setItem("video_clips", JSON.stringify(clips)); } catch {}
-}
- 
-// ── Utilidades ────────────────────────────────────────────────────
+// ── Utilidades ─────────────────────────────────────────────────────
 function embedUrl(url: string): string {
   if (!url) return "";
   const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
@@ -55,7 +48,7 @@ const CAT_COLORES: Record<string, string> = {
 };
 const HERRAMIENTA_COLORES = ["#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#fff", "#8b5cf6"];
  
-// ── Componente principal ──────────────────────────────────────────
+// ── Componente principal ───────────────────────────────────────────
 export default function Videos() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [pestana, setPestana] = useState<"biblioteca" | "anotaciones" | "comparacion" | "ia">("biblioteca");
@@ -64,28 +57,97 @@ export default function Videos() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
   const [filtroJugador, setFiltroJugador] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(true);
  
-  useEffect(() => { setClips(getClips()); }, []);
+  // 1. Obtener usuario y cargar clips
+  useEffect(() => {
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+      await cargarClips(user.id);
+    }
+    init();
+  }, []);
  
-  function guardar(lista: Clip[]) { setClips(lista); saveClips(lista); }
+  async function cargarClips(uid: string) {
+    setCargando(true);
+    const { data, error } = await supabase
+      .from("video_clips")
+      .select("*")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false });
  
-  function eliminarClip(id: string) {
-    guardar(clips.filter(c => c.id !== id));
+    if (error) {
+      console.error("Error cargando clips:", error.message);
+      setCargando(false);
+      return;
+    }
+ 
+    const parsed: Clip[] = (data || []).map((c: any) => ({
+      id: c.id,
+      jugador: c.jugador || "",
+      equipo: c.equipo || "",
+      categoria: c.categoria || "Otro",
+      titulo: c.titulo || "",
+      url: c.url || "",
+      fecha: c.fecha || "",
+      notas: c.notas || "",
+      anotaciones: Array.isArray(c.anotaciones) ? c.anotaciones : [],
+    }));
+ 
+    setClips(parsed);
+    setCargando(false);
+  }
+ 
+  // 2. Guardar nuevo clip en Supabase
+  async function guardarClip(clip: Clip) {
+    if (!userId) return;
+    const { data, error } = await supabase.from("video_clips").insert({
+      user_id: userId,
+      titulo: clip.titulo,
+      jugador: clip.jugador,
+      equipo: clip.equipo,
+      categoria: clip.categoria,
+      url: clip.url,
+      notas: clip.notas,
+      anotaciones: clip.anotaciones,
+      fecha: clip.fecha,
+    }).select().single();
+ 
+    if (error) { console.error("Error guardando clip:", error.message); return; }
+    setClips(prev => [{ ...clip, id: data.id }, ...prev]);
+  }
+ 
+  // 3. Eliminar clip
+  async function eliminarClip(id: string) {
+    const { error } = await supabase.from("video_clips").delete().eq("id", id);
+    if (error) { console.error("Error eliminando clip:", error.message); return; }
+    setClips(prev => prev.filter(c => c.id !== id));
     if (clipSeleccionado?.id === id) setClipSeleccionado(null);
   }
  
-  function actualizarAnotaciones(clipId: string, anotaciones: Anotacion[]) {
-    const nuevos = clips.map(c => c.id === clipId ? { ...c, anotaciones } : c);
-    guardar(nuevos);
+  // 4. Actualizar anotaciones
+  async function actualizarAnotaciones(clipId: string, anotaciones: Anotacion[]) {
+    const { error } = await supabase
+      .from("video_clips")
+      .update({ anotaciones })
+      .eq("id", clipId);
+ 
+    if (error) { console.error("Error actualizando anotaciones:", error.message); return; }
+    setClips(prev => prev.map(c => c.id === clipId ? { ...c, anotaciones } : c));
     setClipSeleccionado(prev => prev?.id === clipId ? { ...prev, anotaciones } : prev);
   }
  
   const jugadores = [...new Set(clips.map(c => c.jugador).filter(Boolean))];
   const filtrados = clips.filter(c => {
     const txt = busqueda.toLowerCase();
-    return (!busqueda || c.jugador.toLowerCase().includes(txt) || c.titulo.toLowerCase().includes(txt) || c.equipo.toLowerCase().includes(txt))
-      && (!filtroCategoria || c.categoria === filtroCategoria)
-      && (!filtroJugador || c.jugador === filtroJugador);
+    return (
+      (!busqueda || c.jugador.toLowerCase().includes(txt) || c.titulo.toLowerCase().includes(txt) || c.equipo.toLowerCase().includes(txt)) &&
+      (!filtroCategoria || c.categoria === filtroCategoria) &&
+      (!filtroJugador || c.jugador === filtroJugador)
+    );
   });
  
   return (
@@ -111,7 +173,7 @@ export default function Videos() {
             { id: "comparacion", label: "⚖️ Comparación" },
             { id: "ia", label: "🤖 Análisis IA" },
           ].map(p => (
-            <button key={p.id} onClick={() => setPestana(p.id as "biblioteca" | "anotaciones" | "comparacion" | "ia")} style={{
+            <button key={p.id} onClick={() => setPestana(p.id as typeof pestana)} style={{
               background: pestana === p.id ? "#3b82f6" : "transparent",
               border: "none", borderRadius: 9, padding: "8px 18px",
               color: pestana === p.id ? "#fff" : "#6b7280",
@@ -120,26 +182,34 @@ export default function Videos() {
           ))}
         </div>
  
-        {pestana === "biblioteca" && (
-          <Biblioteca
-            clips={filtrados} jugadores={jugadores}
-            busqueda={busqueda} setBusqueda={setBusqueda}
-            filtroCategoria={filtroCategoria} setFiltroCategoria={setFiltroCategoria}
-            filtroJugador={filtroJugador} setFiltroJugador={setFiltroJugador}
-            onSeleccionar={(c: Clip) => { setClipSeleccionado(c); setPestana("anotaciones"); }}
-            onEliminar={eliminarClip}
-          />
+        {cargando ? (
+          <div style={{ textAlign: "center", padding: 80, color: "#6b7280" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>Cargando clips...
+          </div>
+        ) : (
+          <>
+            {pestana === "biblioteca" && (
+              <Biblioteca
+                clips={filtrados} jugadores={jugadores}
+                busqueda={busqueda} setBusqueda={setBusqueda}
+                filtroCategoria={filtroCategoria} setFiltroCategoria={setFiltroCategoria}
+                filtroJugador={filtroJugador} setFiltroJugador={setFiltroJugador}
+                onSeleccionar={(c: Clip) => { setClipSeleccionado(c); setPestana("anotaciones"); }}
+                onEliminar={eliminarClip}
+              />
+            )}
+            {pestana === "anotaciones" && (
+              <Anotaciones clips={clips} clipInicial={clipSeleccionado} onActualizarAnotaciones={actualizarAnotaciones} />
+            )}
+            {pestana === "comparacion" && <Comparacion clips={clips} />}
+            {pestana === "ia" && <AnalisisIA clips={clips} />}
+          </>
         )}
-        {pestana === "anotaciones" && (
-          <Anotaciones clips={clips} clipInicial={clipSeleccionado} onActualizarAnotaciones={actualizarAnotaciones} />
-        )}
-        {pestana === "comparacion" && <Comparacion clips={clips} />}
-        {pestana === "ia" && <AnalisisIA clips={clips} />}
       </div>
  
       {mostrarForm && (
         <ModalAddClip
-          onGuardar={(clip: Clip) => { guardar([...clips, clip]); setMostrarForm(false); }}
+          onGuardar={(clip: Clip) => { guardarClip(clip); setMostrarForm(false); }}
           onCerrar={() => setMostrarForm(false)}
         />
       )}
@@ -147,7 +217,7 @@ export default function Videos() {
   );
 }
  
-// ── BIBLIOTECA ────────────────────────────────────────────────────
+// ── BIBLIOTECA ─────────────────────────────────────────────────────
 function Biblioteca({ clips, jugadores, busqueda, setBusqueda, filtroCategoria, setFiltroCategoria, filtroJugador, setFiltroJugador, onSeleccionar, onEliminar }: {
   clips: Clip[]; jugadores: string[];
   busqueda: string; setBusqueda: (v: string) => void;
@@ -173,7 +243,7 @@ function Biblioteca({ clips, jugadores, busqueda, setBusqueda, filtroCategoria, 
         <div style={{ textAlign: "center", padding: 80, color: "#6b7280" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
           <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#9ca3af" }}>No hay clips todavía</div>
-          <div style={{ fontSize: 14 }}>Añade URLs de YouTube/Vimeo o sube un vídeo desde tu ordenador</div>
+          <div style={{ fontSize: 14 }}>Añade URLs de YouTube/Vimeo para empezar</div>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
@@ -189,11 +259,6 @@ function Biblioteca({ clips, jugadores, busqueda, setBusqueda, filtroCategoria, 
                     style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }}
                     alt=""
                   />
-                ) : clip.url.startsWith("blob:") ? (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontSize: 36 }}>📁</div>
-                    <div style={{ color: "#6b7280", fontSize: 11, fontWeight: 600 }}>Archivo local</div>
-                  </div>
                 ) : (
                   <div style={{ fontSize: 48 }}>🎬</div>
                 )}
@@ -203,11 +268,6 @@ function Biblioteca({ clips, jugadores, busqueda, setBusqueda, filtroCategoria, 
                 {clip.anotaciones?.length > 0 && (
                   <div style={{ position: "absolute", top: 8, right: 8, background: "#8b5cf6", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 700, color: "#fff" }}>
                     ✏️ {clip.anotaciones.length}
-                  </div>
-                )}
-                {clip.url.startsWith("blob:") && (
-                  <div style={{ position: "absolute", top: 8, left: 8, background: "#f59e0b", borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#000" }}>
-                    LOCAL
                   </div>
                 )}
               </div>
@@ -235,7 +295,7 @@ function Biblioteca({ clips, jugadores, busqueda, setBusqueda, filtroCategoria, 
   );
 }
  
-// ── ANOTACIONES ───────────────────────────────────────────────────
+// ── ANOTACIONES ────────────────────────────────────────────────────
 function Anotaciones({ clips, clipInicial, onActualizarAnotaciones }: {
   clips: Clip[];
   clipInicial: Clip | null;
@@ -267,10 +327,8 @@ function Anotaciones({ clips, clipInicial, onActualizarAnotaciones }: {
   }
  
   function dibujarAnotacion(ctx: CanvasRenderingContext2D, a: Anotacion) {
-    ctx.strokeStyle = a.color;
-    ctx.fillStyle = a.color;
-    ctx.lineWidth = 2.5;
-    ctx.font = "bold 16px Segoe UI";
+    ctx.strokeStyle = a.color; ctx.fillStyle = a.color;
+    ctx.lineWidth = 2.5; ctx.font = "bold 16px Segoe UI";
     if (a.tipo === "flecha" && a.x2 !== undefined && a.y2 !== undefined) {
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(a.x2, a.y2); ctx.stroke();
       const angle = Math.atan2(a.y2 - a.y, a.x2 - a.x);
@@ -363,7 +421,7 @@ function Anotaciones({ clips, clipInicial, onActualizarAnotaciones }: {
                 onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = "#3b82f6"}
                 onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = "#1f2937"}>
                 <div style={{ fontWeight: 700, color: "#fff", fontSize: 14 }}>{c.titulo}</div>
-                <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>👤 {c.jugador} {c.url.startsWith("blob:") ? "· 📁 Local" : ""}</div>
+                <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>👤 {c.jugador}</div>
               </div>
             ))}
           </div>
@@ -418,11 +476,8 @@ function Anotaciones({ clips, clipInicial, onActualizarAnotaciones }: {
               <video src={clip.url} controls style={{ width: "100%", height: "100%" }} />
             )}
             <canvas
-              ref={canvasRef}
-              width={1280} height={720}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
+              ref={canvasRef} width={1280} height={720}
+              onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp}
               style={{
                 position: "absolute", inset: 0, width: "100%", height: "100%",
                 cursor: herramienta === "texto" ? "text" : herramienta === "selector" ? "default" : "crosshair",
@@ -430,14 +485,14 @@ function Anotaciones({ clips, clipInicial, onActualizarAnotaciones }: {
               }}
             />
           </div>
-          <p style={{ color: "#6b7280", fontSize: 12, marginTop: 8 }}>💡 Las anotaciones se guardan automáticamente.</p>
+          <p style={{ color: "#6b7280", fontSize: 12, marginTop: 8 }}>💡 Las anotaciones se guardan automáticamente en Supabase.</p>
         </div>
       )}
     </div>
   );
 }
  
-// ── COMPARACIÓN ───────────────────────────────────────────────────
+// ── COMPARACIÓN ────────────────────────────────────────────────────
 function Comparacion({ clips }: { clips: Clip[] }) {
   const [clipA, setClipA] = useState<string>("");
   const [clipB, setClipB] = useState<string>("");
@@ -517,7 +572,7 @@ function Comparacion({ clips }: { clips: Clip[] }) {
   );
 }
  
-// ── ANÁLISIS IA ───────────────────────────────────────────────────
+// ── ANÁLISIS IA ────────────────────────────────────────────────────
 function AnalisisIA({ clips }: { clips: Clip[] }) {
   const [clipId, setClipId] = useState("");
   const [analisis, setAnalisis] = useState("");
@@ -567,7 +622,7 @@ function AnalisisIA({ clips }: { clips: Clip[] }) {
           </div>
           <div>
             <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Tipo de análisis</label>
-            <select value={tipoAnalisis} onChange={e => setTipoAnalisis(e.target.value as "tactica" | "tecnica" | "fisico" | "informe")} style={{ width: "100%", background: "#111827", border: "1px solid #1f2937", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none" }}>
+            <select value={tipoAnalisis} onChange={e => setTipoAnalisis(e.target.value as typeof tipoAnalisis)} style={{ width: "100%", background: "#111827", border: "1px solid #1f2937", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none" }}>
               <option value="tactica">🧠 Análisis táctico</option>
               <option value="tecnica">⚽ Análisis técnico</option>
               <option value="fisico">💪 Análisis físico</option>
@@ -614,98 +669,42 @@ function AnalisisIA({ clips }: { clips: Clip[] }) {
   );
 }
  
-// ── MODAL AÑADIR CLIP ─────────────────────────────────────────────
+// ── MODAL AÑADIR CLIP ──────────────────────────────────────────────
 function ModalAddClip({ onGuardar, onCerrar }: { onGuardar: (c: Clip) => void; onCerrar: () => void }) {
   const [form, setForm] = useState({ jugador: "", equipo: "", titulo: "", url: "", categoria: "Táctica" as Clip["categoria"], notas: "" });
-  const [modoSubida, setModoSubida] = useState<"url" | "archivo">("url");
-  const fileRef = useRef<HTMLInputElement>(null);
- 
-  function handleArchivo(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const objectUrl = URL.createObjectURL(file);
-    setForm(prev => ({ ...prev, url: objectUrl, titulo: prev.titulo || file.name.replace(/\.[^.]+$/, "") }));
-  }
  
   function handleGuardar() {
     if (!form.titulo || !form.url || !form.jugador) return;
-    onGuardar({ id: Date.now().toString(), ...form, fecha: new Date().toLocaleDateString("es-ES"), anotaciones: [] });
+    onGuardar({ id: "", ...form, fecha: new Date().toLocaleDateString("es-ES"), anotaciones: [] });
   }
  
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000cc", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 24 }}>
       <div style={{ background: "#1a1f2e", border: "1px solid #374151", borderRadius: 20, padding: 32, width: "100%", maxWidth: 500, boxShadow: "0 24px 64px #00000080", maxHeight: "90vh", overflowY: "auto" }}>
         <h2 style={{ margin: "0 0 20px", fontSize: 20, fontWeight: 900, color: "#fff" }}>🎬 Añadir clip</h2>
- 
-        {/* Selector modo */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#111827", borderRadius: 10, padding: 4 }}>
-          {[{ id: "url", label: "🔗 URL (YouTube/Vimeo)" }, { id: "archivo", label: "📁 Subir archivo" }].map(m => (
-            <button key={m.id} onClick={() => { setModoSubida(m.id as "url" | "archivo"); setForm(prev => ({ ...prev, url: "" })); }} style={{
-              flex: 1, background: modoSubida === m.id ? "#3b82f6" : "transparent",
-              border: "none", borderRadius: 8, color: modoSubida === m.id ? "#fff" : "#6b7280",
-              padding: "8px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            }}>{m.label}</button>
-          ))}
-        </div>
- 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {[
             { key: "titulo", label: "Título del clip *", placeholder: "Ej: Gol de volea vs Atlético" },
             { key: "jugador", label: "Jugador *", placeholder: "Ej: Fernández, Daniel" },
             { key: "equipo", label: "Club", placeholder: "Ej: Real Madrid" },
+            { key: "url", label: "URL del vídeo * (YouTube/Vimeo)", placeholder: "https://youtube.com/watch?v=..." },
           ].map(({ key, label, placeholder }) => (
             <div key={key}>
               <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>{label}</label>
               <input value={(form as Record<string, string>)[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} placeholder={placeholder} style={{ width: "100%", background: "#111827", border: "1px solid #374151", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
             </div>
           ))}
- 
-          {modoSubida === "url" ? (
-            <div>
-              <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>URL del vídeo *</label>
-              <input value={form.url} onChange={e => setForm({ ...form, url: e.target.value })} placeholder="https://youtube.com/watch?v=..." style={{ width: "100%", background: "#111827", border: "1px solid #374151", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          ) : (
-            <div>
-              <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Archivo de vídeo *</label>
-              <div
-                onClick={() => fileRef.current?.click()}
-                style={{
-                  background: "#111827",
-                  border: `2px dashed ${form.url.startsWith("blob:") ? "#10b981" : "#374151"}`,
-                  borderRadius: 10, padding: "24px", textAlign: "center", cursor: "pointer", transition: "border-color 0.15s",
-                }}
-                onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = "#3b82f6"}
-                onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = form.url.startsWith("blob:") ? "#10b981" : "#374151"}
-              >
-                <input ref={fileRef} type="file" accept="video/*" onChange={handleArchivo} style={{ display: "none" }} />
-                {form.url.startsWith("blob:") ? (
-                  <div style={{ color: "#10b981", fontWeight: 700, fontSize: 14 }}>✅ Vídeo cargado — listo para usar</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
-                    <div style={{ color: "#9ca3af", fontSize: 14, fontWeight: 600 }}>Haz clic para seleccionar un vídeo</div>
-                    <div style={{ color: "#4b5563", fontSize: 12, marginTop: 4 }}>MP4, MOV, AVI, MKV...</div>
-                  </>
-                )}
-              </div>
-              <p style={{ color: "#4b5563", fontSize: 11, marginTop: 6 }}>⚠️ El vídeo solo estará disponible mientras la pestaña esté abierta</p>
-            </div>
-          )}
- 
           <div>
             <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Categoría</label>
             <select value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value as Clip["categoria"] })} style={{ width: "100%", background: "#111827", border: "1px solid #374151", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none" }}>
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
- 
           <div>
             <label style={{ color: "#9ca3af", fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Notas del scout</label>
             <textarea value={form.notas} onChange={e => setForm({ ...form, notas: e.target.value })} placeholder="Observaciones sobre el clip..." rows={3} style={{ width: "100%", background: "#111827", border: "1px solid #374151", borderRadius: 10, padding: "10px 14px", color: "#fff", fontSize: 14, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
           </div>
         </div>
- 
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           <button onClick={onCerrar} style={{ flex: 1, background: "#111827", border: "1px solid #374151", borderRadius: 10, color: "#9ca3af", padding: "12px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
           <button onClick={handleGuardar} disabled={!form.titulo || !form.url || !form.jugador} style={{ flex: 1, background: form.titulo && form.url && form.jugador ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "#374151", border: "none", borderRadius: 10, color: "#fff", padding: "12px", fontSize: 14, fontWeight: 700, cursor: form.titulo && form.url && form.jugador ? "pointer" : "not-allowed" }}>

@@ -1,10 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import Papa from "papaparse";
- 
-const SHEET_ID = "1Hh982i-Mx_ytjeAONBkJtWLu7N3AaEHGZRyqBw0DS5A";
-const SHEET_NAME = "Jugadores";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+import { supabase } from "@/lib/supabaseClient";
  
 const LIGAS_DISPONIBLES = [
   { id: 2021, nombre: "Premier League", pais: "Inglaterra", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
@@ -32,65 +28,23 @@ type Partido = {
 };
  
 type Jugador = {
-  id: string; apellidos: string; nombre: string;
-  equipoActual: string; posicion: string;
+  id: string;
+  apellidos: string;
+  nombre: string;
+  equipoActual: string;
+  posicion: string;
 };
  
-function parseJugadores(filas: Record<string, string>[]): Jugador[] {
-  let dataStart = 0;
-  for (let i = 0; i < filas.length; i++) {
-    const vals = Object.values(filas[i]).join(" ").toLowerCase();
-    if (vals.includes("apellidos") || vals.includes("id")) { dataStart = i + 1; break; }
-  }
-  const result: Jugador[] = [];
-  for (let i = dataStart; i < filas.length; i++) {
-    const vals = Object.values(filas[i]);
-    if (vals.every(v => !v || v.toString().trim() === "")) continue;
-    const get = (idx: number) => vals[idx]?.toString().trim() || "";
-    result.push({
-      id: get(1), apellidos: get(2), nombre: get(3),
-      posicion: get(4), equipoActual: get(6),
-    });
-  }
-  return result.filter(j => j.apellidos || j.nombre);
-}
- 
 function jugadoresEnPartido(partido: Partido, jugadores: Jugador[]): Jugador[] {
-  return jugadores.filter(j => {
+  return jugadores.filter((j) => {
     const equipo = j.equipoActual.toLowerCase();
-    return partido.local.toLowerCase().includes(equipo) ||
+    return (
+      partido.local.toLowerCase().includes(equipo) ||
       partido.visitante.toLowerCase().includes(equipo) ||
       equipo.includes(partido.local.toLowerCase()) ||
-      equipo.includes(partido.visitante.toLowerCase());
+      equipo.includes(partido.visitante.toLowerCase())
+    );
   });
-}
- 
-function getPartidosCalendario(): number[] {
-  try {
-    const data = localStorage.getItem("calendario_partidos");
-    if (!data) return [];
-    return JSON.parse(data).map((p: any) => p.id);
-  } catch { return []; }
-}
- 
-function guardarEnCalendario(partido: Partido) {
-  try {
-    const data = localStorage.getItem("calendario_partidos");
-    const existentes = data ? JSON.parse(data) : [];
-    const yaExiste = existentes.some((p: any) => p.id === partido.id);
-    if (yaExiste) return false;
-    const entrada = {
-      id: partido.id,
-      fecha: new Date(partido.fechaISO).toDateString(),
-      hora: partido.hora,
-      equipos: `${partido.local} vs ${partido.visitante}`,
-      estado: "Pendiente",
-      competicion: partido.competicion,
-      estadio: partido.estadio,
-    };
-    localStorage.setItem("calendario_partidos", JSON.stringify([...existentes, entrada]));
-    return true;
-  } catch { return false; }
 }
  
 export default function Partidos() {
@@ -102,32 +56,95 @@ export default function Partidos() {
   const [error, setError] = useState("");
   const [enCalendario, setEnCalendario] = useState<number[]>([]);
   const [toast, setToast] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
  
+  // 1. Obtener usuario logueado y cargar sus datos
   useEffect(() => {
-    Papa.parse(CSV_URL, {
-      download: true, header: true, skipEmptyLines: true,
-      complete: (result) => {
-        setJugadores(parseJugadores(result.data as Record<string, string>[]));
-      },
-    });
-    setEnCalendario(getPartidosCalendario());
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+      await cargarJugadores(user.id);
+      await cargarCalendario(user.id);
+    }
+    init();
   }, []);
+ 
+  // 2. Cargar jugadores del radar desde Supabase (filtrados por user_id)
+  async function cargarJugadores(uid: string) {
+    const { data, error } = await supabase
+      .from("jugadores")
+      .select("id, apellidos, nombre, equipo_actual, posicion")
+      .eq("user_id", uid);
+ 
+    if (error) {
+      console.error("Error cargando jugadores:", error.message);
+      return;
+    }
+ 
+    const parsed: Jugador[] = (data || []).map((j: any) => ({
+      id: j.id,
+      apellidos: j.apellidos || "",
+      nombre: j.nombre || "",
+      equipoActual: j.equipo_actual || "",
+      posicion: j.posicion || "",
+    }));
+ 
+    setJugadores(parsed);
+  }
+ 
+  // 3. Cargar partidos guardados en calendario desde Supabase
+  async function cargarCalendario(uid: string) {
+    const { data, error } = await supabase
+      .from("calendario_partidos")
+      .select("partido_id")
+      .eq("user_id", uid);
+ 
+    if (error) {
+      console.error("Error cargando calendario:", error.message);
+      return;
+    }
+ 
+    setEnCalendario((data || []).map((p: any) => p.partido_id));
+  }
  
   function mostrarToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
  
-  function handleAñadirCalendario(partido: Partido) {
-    const ok = guardarEnCalendario(partido);
-    if (ok) {
-      setEnCalendario(prev => [...prev, partido.id]);
-      mostrarToast(`✅ "${partido.local} vs ${partido.visitante}" añadido al calendario`);
-    } else {
+  // 4. Añadir partido al calendario en Supabase
+  async function handleAñadirCalendario(partido: Partido) {
+    if (!userId) return;
+ 
+    const yaExiste = enCalendario.includes(partido.id);
+    if (yaExiste) {
       mostrarToast("⚠️ Este partido ya está en el calendario");
+      return;
     }
+ 
+    const { error } = await supabase.from("calendario_partidos").insert({
+      user_id: userId,
+      partido_id: partido.id,
+      fecha: new Date(partido.fechaISO).toDateString(),
+      hora: partido.hora,
+      equipos: `${partido.local} vs ${partido.visitante}`,
+      estado: "Pendiente",
+      competicion: partido.competicion,
+      estadio: partido.estadio,
+    });
+ 
+    if (error) {
+      console.error("Error guardando partido:", error.message);
+      mostrarToast("❌ Error al guardar el partido");
+      return;
+    }
+ 
+    setEnCalendario((prev) => [...prev, partido.id]);
+    mostrarToast(`✅ "${partido.local} vs ${partido.visitante}" añadido al calendario`);
   }
  
+  // 5. Cargar partidos desde la API externa de fútbol
   async function cargarPartidos(ligaId: number) {
     setLoading(true);
     setError("");
@@ -141,13 +158,24 @@ export default function Partidos() {
       const res = await fetch(`/api/partidos?liga=${ligaId}&desde=${desde}&hasta=${hasta}`);
       const data = await res.json();
  
-      if (!data.matches) { setError("No se encontraron partidos"); setLoading(false); return; }
+      if (!data.matches) {
+        setError("No se encontraron partidos");
+        setLoading(false);
+        return;
+      }
  
       const lista: Partido[] = data.matches.map((m: any) => ({
         id: m.id,
         fechaISO: m.utcDate,
-        fecha: new Date(m.utcDate).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }),
-        hora: new Date(m.utcDate).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+        fecha: new Date(m.utcDate).toLocaleDateString("es-ES", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        }),
+        hora: new Date(m.utcDate).toLocaleTimeString("es-ES", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
         local: m.homeTeam.name,
         visitante: m.awayTeam.name,
         estadio: m.venue || "—",
@@ -164,10 +192,13 @@ export default function Partidos() {
     setLoading(false);
   }
  
-  const partidosFiltrados = partidos.filter(p => {
+  const partidosFiltrados = partidos.filter((p) => {
     if (!busquedaEquipo) return true;
     const texto = busquedaEquipo.toLowerCase();
-    return p.local.toLowerCase().includes(texto) || p.visitante.toLowerCase().includes(texto);
+    return (
+      p.local.toLowerCase().includes(texto) ||
+      p.visitante.toLowerCase().includes(texto)
+    );
   });
  
   return (
@@ -182,7 +213,6 @@ export default function Partidos() {
             borderRadius: 12, padding: "14px 20px",
             color: "#e5e7eb", fontSize: 14, fontWeight: 600,
             boxShadow: "0 8px 32px #00000060",
-            animation: "fadeIn 0.2s ease",
           }}>
             {toast}
           </div>
@@ -198,9 +228,11 @@ export default function Partidos() {
  
         {/* SELECTOR DE LIGAS */}
         <div style={{ marginBottom: 24 }}>
-          <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Selecciona una liga</p>
+          <p style={{ color: "#9ca3af", fontSize: 13, marginBottom: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Selecciona una liga
+          </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {LIGAS_DISPONIBLES.map(liga => (
+            {LIGAS_DISPONIBLES.map((liga) => (
               <button
                 key={liga.id}
                 onClick={() => cargarPartidos(liga.id)}
@@ -224,9 +256,14 @@ export default function Partidos() {
           <div style={{ marginBottom: 20 }}>
             <input
               value={busquedaEquipo}
-              onChange={e => setBusquedaEquipo(e.target.value)}
+              onChange={(e) => setBusquedaEquipo(e.target.value)}
               placeholder="🔍 Buscar por equipo..."
-              style={{ width: "100%", maxWidth: 400, background: "#1a1f2e", border: "1px solid #1f2937", borderRadius: 10, padding: "10px 16px", color: "#fff", fontSize: 14, outline: "none" }}
+              style={{
+                width: "100%", maxWidth: 400,
+                background: "#1a1f2e", border: "1px solid #1f2937",
+                borderRadius: 10, padding: "10px 16px",
+                color: "#fff", fontSize: 14, outline: "none",
+              }}
             />
           </div>
         )}
@@ -257,16 +294,19 @@ export default function Partidos() {
  
         {/* LISTA DE PARTIDOS */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {partidosFiltrados.map(partido => {
+          {partidosFiltrados.map((partido) => {
             const enRadar = jugadoresEnPartido(partido, jugadores);
             const yaEnCalendario = enCalendario.includes(partido.id);
             return (
-              <div key={partido.id} style={{
-                background: "#1a1f2e",
-                border: `1px solid ${enRadar.length > 0 ? "#3b82f640" : "#1f2937"}`,
-                borderRadius: 14, padding: "20px 24px",
-                boxShadow: enRadar.length > 0 ? "0 0 20px #3b82f610" : "none",
-              }}>
+              <div
+                key={partido.id}
+                style={{
+                  background: "#1a1f2e",
+                  border: `1px solid ${enRadar.length > 0 ? "#3b82f640" : "#1f2937"}`,
+                  borderRadius: 14, padding: "20px 24px",
+                  boxShadow: enRadar.length > 0 ? "0 0 20px #3b82f610" : "none",
+                }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
  
                   {/* FECHA Y HORA */}
@@ -283,7 +323,8 @@ export default function Partidos() {
                     <div style={{
                       background: "#111827", border: "1px solid #374151",
                       borderRadius: 8, padding: "6px 14px",
-                      color: "#6b7280", fontWeight: 900, fontSize: 14, minWidth: 60, textAlign: "center",
+                      color: "#6b7280", fontWeight: 900, fontSize: 14,
+                      minWidth: 60, textAlign: "center",
                     }}>
                       {partido.estado === "FINISHED"
                         ? `${partido.golesLocal} - ${partido.golesVisitante}`
@@ -307,7 +348,8 @@ export default function Partidos() {
                         border: `1px solid ${yaEnCalendario ? "#10b98140" : "#3b82f640"}`,
                         borderRadius: 8, padding: "6px 12px",
                         color: yaEnCalendario ? "#10b981" : "#60a5fa",
-                        fontSize: 12, fontWeight: 700, cursor: yaEnCalendario ? "default" : "pointer",
+                        fontSize: 12, fontWeight: 700,
+                        cursor: yaEnCalendario ? "default" : "pointer",
                         transition: "all 0.15s",
                       }}
                     >
@@ -323,14 +365,23 @@ export default function Partidos() {
                       🎯 {enRadar.length} jugador{enRadar.length > 1 ? "es" : ""} en tu radar
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {enRadar.map(j => (
-                        <a key={j.id} href={`/jugadores/${encodeURIComponent(j.id)}`} style={{
-                          background: "#3b82f620", border: "1px solid #3b82f640",
-                          borderRadius: 8, padding: "6px 12px",
-                          color: "#93c5fd", fontSize: 13, fontWeight: 600,
-                          textDecoration: "none", display: "flex", alignItems: "center", gap: 6,
-                        }}>
-                          <div style={{ width: 24, height: 24, borderRadius: "50%", background: "linear-gradient(135deg, #3b82f6, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff" }}>
+                      {enRadar.map((j) => (
+                        <a
+                          key={j.id}
+                          href={`/jugadores/${encodeURIComponent(j.id)}`}
+                          style={{
+                            background: "#3b82f620", border: "1px solid #3b82f640",
+                            borderRadius: 8, padding: "6px 12px",
+                            color: "#93c5fd", fontSize: 13, fontWeight: 600,
+                            textDecoration: "none", display: "flex", alignItems: "center", gap: 6,
+                          }}
+                        >
+                          <div style={{
+                            width: 24, height: 24, borderRadius: "50%",
+                            background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 11, fontWeight: 700, color: "#fff",
+                          }}>
                             {j.apellidos?.[0] || "?"}
                           </div>
                           {j.apellidos}, {j.nombre}
@@ -348,3 +399,4 @@ export default function Partidos() {
     </div>
   );
 }
+ 
