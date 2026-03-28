@@ -1,38 +1,108 @@
 'use client'
-
+ 
 import { useAuth } from '@/context/AuthContext'
-
+import { Syne, DM_Sans } from 'next/font/google'
+ 
+const syne = Syne({ subsets: ['latin'], weight: ['700', '800'] })
+const dmSans = DM_Sans({ subsets: ['latin'], weight: ['300', '400', '500'] })
+ 
+const CARDS = [
+  { label: 'Jugadores seguidos', href: '/dashboard/jugadores', icon: '👤', color: '#10b981' },
+  { label: 'Partidos analizados', href: '/dashboard/partidos', icon: '📋', color: '#3b82f6' },
+  { label: 'Vídeos guardados', href: '/dashboard/videos', icon: '🎥', color: '#8b5cf6' },
+  { label: 'Entradas de diario', href: '/dashboard/diario', icon: '✍️', color: '#f59e0b' },
+  { label: 'Eventos en calendario', href: '/dashboard/calendario', icon: '📅', color: '#ef4444' },
+]
+ 
 export default function DashboardPage() {
   const { perfil } = useAuth()
-
+ 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">
-          Bienvenido, {perfil?.nombre?.split(' ')[0]} 👋
-        </h1>
-        <p className="text-slate-400 mt-1">Tu panel de scouting privado</p>
+    <>
+      <style>{`
+        .dash-root {
+          padding: 0;
+        }
+        .dash-header {
+          margin-bottom: 32px;
+        }
+        .dash-title {
+          font-size: 28px;
+          font-weight: 800;
+          color: white;
+          letter-spacing: -0.02em;
+          margin-bottom: 6px;
+        }
+        .dash-subtitle {
+          color: #6b7280;
+          font-size: 14px;
+        }
+        .dash-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 16px;
+        }
+        .dash-card {
+          background: rgba(17,24,39,0.8);
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 20px;
+          padding: 24px;
+          text-decoration: none;
+          display: block;
+          transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+          cursor: pointer;
+        }
+        .dash-card:hover {
+          border-color: rgba(255,255,255,0.15);
+          transform: translateY(-2px);
+          box-shadow: 0 12px 32px rgba(0,0,0,0.3);
+        }
+        .dash-card-icon {
+          font-size: 32px;
+          margin-bottom: 14px;
+          display: block;
+        }
+        .dash-card-label {
+          color: white;
+          font-size: 15px;
+          font-weight: 600;
+          margin-bottom: 6px;
+        }
+        .dash-card-sub {
+          color: #4b5563;
+          font-size: 13px;
+        }
+        .dash-card-dot {
+          display: inline-block;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          margin-right: 6px;
+          vertical-align: middle;
+        }
+      `}</style>
+ 
+      <div className={`dash-root ${dmSans.className}`}>
+        <div className="dash-header">
+          <h1 className={`dash-title ${syne.className}`}>
+            Bienvenido, {perfil?.nombre?.split(' ')[0]} 👋
+          </h1>
+          <p className="dash-subtitle">Tu panel de scouting privado</p>
+        </div>
+ 
+        <div className="dash-grid">
+          {CARDS.map(item => (
+            <a key={item.href} href={item.href} className="dash-card">
+              <span className="dash-card-icon">{item.icon}</span>
+              <p className="dash-card-label">{item.label}</p>
+              <p className="dash-card-sub">
+                <span className="dash-card-dot" style={{ background: item.color }} />
+                Ver todos →
+              </p>
+            </a>
+          ))}
+        </div>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {[
-          { label: 'Jugadores seguidos', href: '/dashboard/jugadores', color: 'emerald', icon: '👤' },
-          { label: 'Partidos analizados', href: '/dashboard/partidos', color: 'blue', icon: '📋' },
-          { label: 'Vídeos guardados', href: '/dashboard/videos', color: 'purple', icon: '🎥' },
-          { label: 'Entradas de diario', href: '/dashboard/diario', color: 'amber', icon: '✍️' },
-          { label: 'Eventos en calendario', href: '/dashboard/calendario', color: 'rose', icon: '📅' },
-        ].map(item => (
-          <a
-            key={item.href}
-            href={item.href}
-            className="bg-[#111827] border border-slate-700/50 rounded-2xl p-6 hover:border-slate-600 transition-all group"
-          >
-            <div className="text-3xl mb-3">{item.icon}</div>
-            <p className="text-white font-medium group-hover:text-emerald-400 transition-colors">{item.label}</p>
-            <p className="text-slate-500 text-sm mt-1">Ver todos →</p>
-          </a>
-        ))}
-      </div>
-    </div>
+    </>
   )
 }
